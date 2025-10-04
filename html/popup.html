@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="Content-Language" content="en">
+    <title></title>
+    <link rel="stylesheet" href="../css/reset.css">
+    <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+<header>
+    <img class="logo" src="../images/icon.png" alt="icon">
+    <div id="loader"></div>
+    <div class="checkbox-block">
+        <div class="label">Activate App</div>
+        <input type="checkbox" id="active_app" name="check" disabled>
+        <label for="active_app"></label>
+    </div>
+    <img id="proxy_settings" src="../images/proxy_settings.svg" alt="proxy_settings">
+    <img id="separate_window" src="../images/separate_window.svg" alt="separate_window">
+</header>
+<main>
+    <div id="proxy_modal">
+        <div class="modal">
+            <div class="head">
+                <div class="title">PROXY SETTINGS</div>
+                <button class="close"></button>
+            </div>
+            <div class="body">
+                <div class="input-block" style="width: 100%">
+                    <label for="proxy_protocol">Proxy protocol</label>
+                    <select id="proxy_protocol" name="proxy_protocol" required>
+                        <option value="http">HTTP(S)</option>
+                        <option value="socks">SOCKS5</option>
+                    </select>
+                </div>
+                <div class="input-wrapper">
+                    <div class="input-block" style="width: 80%">
+                        <label for="proxy_ip">Proxy address</label>
+                        <input type="text" id="proxy_ip" name="proxy_ip" required>
+                    </div>
+                    <div class="input-block">
+                        <label for="proxy_port">Proxy port</label>
+                        <input type="text" id="proxy_port" name="proxy_port" required>
+                    </div>
+                </div>
+                <div class="input-wrapper">
+                    <div class="input-block">
+                        <label for="proxy_port">Proxy user</label>
+                        <input type="text" id="proxy_user" name="proxy_user" required>
+                    </div>
+                    <div class="input-block">
+                        <label for="proxy_pwd">Proxy password</label>
+                        <input type="text" id="proxy_pwd" name="proxy_pwd" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="radio-block">
+            <input type="radio" id="instant" name="prep_type" value="instant">
+            <label for="instant">Instant</label>
+            <input type="radio" id="danger" name="prep_type" value="danger">
+            <label for="danger">Danger</label>
+        </div>
+        <div id="danger_indicator">
+            <div class="indicator"></div>
+            <div class="command"></div>
+        </div>
+        <div class="checkbox-block">
+            <div class="label">Warming up the bet</div>
+            <input type="checkbox" id="prepare_bet" name="prepare_bet">
+            <label for="prepare_bet"></label>
+        </div>
+        <button class="action_button" id="place_bet" disabled></button>
+        <div id="bet_coupon"></div>
+    </div>
+
+    <div id="license_data">
+        <div>
+            <div class="id"></div>
+            <div class="date"></div>
+        </div>
+        <div>
+            <div class="version"></div>
+            <div class="status">Connection status:<div class="indicator"></div></div>
+        </div>
+    </div>
+</main>
+<script type="text/javascript" src="../js/popup.js"></script>
+</body>
+</html>
