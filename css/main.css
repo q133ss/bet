@@ -583,15 +583,42 @@ main {
 }
 
 .coupon {
-	display: flex;
-	justify-content: space-between;
+        display: flex;
+        justify-content: space-between;
+}
+
+#feedback {
+        display: none;
+        margin: 18px auto 10px;
+        padding: 10px 16px;
+        border-radius: 14px;
+        max-width: 360px;
+        background: rgba(84, 118, 255, 0.16);
+        color: #ffffff;
+        font-size: 14px;
+        text-align: center;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+#feedback.visible {
+        display: block;
+}
+
+#feedback.success {
+        background: rgba(71, 207, 115, 0.2);
+        color: #d2ffe0;
+}
+
+#feedback.error {
+        background: rgba(255, 76, 43, 0.2);
+        color: #ffb19d;
 }
 
 .coupon .price {
-	color: #5476FF;
-	font-weight: 600;
-	font-size: 24px;
-	text-align: center;
+        color: #5476FF;
+        font-weight: 600;
+        font-size: 24px;
+        text-align: center;
 }
 
 .coupon .label {
@@ -628,11 +655,19 @@ main {
 }
 
 #bet_coupon hr {
-	border: none;
-	height: 1px;
-	background: #ffffff;
-	opacity: .3;
-	margin: 14px auto;
+        border: none;
+        height: 1px;
+        background: #ffffff;
+        opacity: .3;
+        margin: 14px auto;
+}
+
+#bet_coupon .empty {
+        text-align: center;
+        opacity: .5;
+        margin: 30px auto 20px;
+        font-size: 14px;
+        letter-spacing: 1px;
 }
 
 .checkbox-block.mini {
