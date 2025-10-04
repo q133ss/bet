@@ -3,8 +3,6 @@
   "version": "1.2.2",
   "background": {
     "scripts": [
-      "js/sentry.js",
-      "js/sentry_replays.js",
       "js/background.js"
     ],
     "persistent": true
@@ -22,17 +20,16 @@
     "cookies",
     "storage",
     "notifications",
-    "<all_urls>",
-    "webRequest",
-    "webRequestBlocking",
-    "webNavigation",
-    "tabs",
-    "activeTab"
+    "tabs"
   ],
   "browser_action": {
-    "default_popup": "html/popup.html"
+    "default_popup": "html/popup.html",
+    "default_title": "Skybet Manual"
   },
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
+  "web_accessible_resources": [
+    "audio/*.mp3"
+  ],
   "commands": {
     "do_bet": {
       "suggested_key": {

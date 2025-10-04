@@ -1,366 +1,355 @@
-// Background script for a betting automation extension
+(function () {
+  const manifest = chrome.runtime.getManifest();
+  const extensionId = chrome.runtime.id || 'offline-mode';
 
-// Configuration and state variables
-let settings = null;
-let coupon = null;
-let betten = false;
-let prepare_stop = null;
-let bet_errors = [];
-let api_socket = null;
-let api_socket_reconn = null;
-let api_socket_checkconn = null;
-let api_socket_lastconn = null;
-let session_interval = null;
+  const DEFAULT_STATE = {
+    appActive: false,
+    prepType: 'instant',
+    prepareBet: false,
+    connectionStatus: 'disconnected',
+    isProcessing: false,
+    betHistory: [],
+    proxy: {
+      protocol: 'http',
+      ip: '',
+      port: '',
+      user: '',
+      password: ''
+    },
+    danger: {
+      label: 'Idle',
+      command: 'Awaiting activation',
+      safe: false
+    },
+    license: {
+      id: extensionId,
+      expiresAt: 'Unlimited'
+    }
+  };
 
-// Initialize when document is loaded
-document.addEventListener('DOMContentLoaded', async () => {
-  await deactivateApp();
-});
+  const SOUND_MAP = {
+    activated: 'audio/active.mp3',
+    success: 'audio/success.mp3',
+    error: 'audio/error.mp3',
+    warmup: 'audio/warmup.mp3',
+    notification: 'audio/notif.mp3'
+  };
 
-// Verify license token with server
-async function verifyToken(token) {
-  try {
-    const requestData = {
-      token: token,
-      app: chrome.runtime.getManifest().name
+  const DANGER_LEVELS = [
+    { label: 'Calm phase', command: 'Monitor opportunities', safe: true },
+    { label: 'Low risk', command: 'Look for value bets', safe: true },
+    { label: 'Medium risk', command: 'Reduce stake size', safe: false },
+    { label: 'High risk', command: 'Hold fire', safe: false },
+    { label: 'Critical', command: 'Abort betting', safe: false }
+  ];
+
+  const ports = new Set();
+  let state = { ...DEFAULT_STATE };
+  let dangerInterval = null;
+
+  function getPersistableState() {
+    return {
+      appActive: state.appActive,
+      prepType: state.prepType,
+      prepareBet: state.prepareBet,
+      betHistory: state.betHistory,
+      proxy: state.proxy
     };
+  }
 
-    const response = await fetch('https://service.fx.ru/api/license/verify', {
-      method: 'POST',
-      body: stringToHex(JSON.stringify(requestData))
+  function getStateForUi() {
+    return {
+      ...state,
+      version: manifest.version,
+      timestamp: Date.now()
+    };
+  }
+
+  function storageGet(key) {
+    return new Promise(resolve => {
+      chrome.storage.local.get(key, resolve);
+    });
+  }
+
+  function storageSet(payload) {
+    return new Promise(resolve => {
+      chrome.storage.local.set(payload, resolve);
+    });
+  }
+
+  async function persistState() {
+    await storageSet({ betState: getPersistableState() });
+  }
+
+  function broadcastState() {
+    const snapshot = getStateForUi();
+    ports.forEach(port => {
+      try {
+        port.postMessage({ type: 'stateUpdate', state: snapshot });
+      } catch (error) {
+        console.warn('Failed to post state to port', error);
+      }
+    });
+  }
+
+  function playSound(key) {
+    const soundPath = SOUND_MAP[key];
+    if (!soundPath) {
+      return;
+    }
+
+    try {
+      const audio = new Audio(chrome.runtime.getURL(soundPath));
+      audio.volume = 0.6;
+      audio.play().catch(() => {
+        /* Audio playback may be blocked in background scripts */
+      });
+    } catch (error) {
+      console.warn('Unable to play sound', error);
+    }
+  }
+
+  function showNotification(title, message, soundKey = 'notification') {
+    chrome.notifications.create('', {
+      type: 'basic',
+      iconUrl: 'images/icon.png',
+      title,
+      message,
+      priority: 1
     });
 
-    if (response.ok) {
-      const result = await response.json();
-      if (!result.success) {
-        return { success: false, error: result.error };
-      } else {
-        return {
-          success: true,
-          license_end: result.license_end,
-          license_id: String(result.license_id)
+    playSound(soundKey);
+  }
+
+  function startDangerSimulation() {
+    if (dangerInterval) {
+      return;
+    }
+
+    const updateDanger = () => {
+      const next = DANGER_LEVELS[Math.floor(Math.random() * DANGER_LEVELS.length)];
+      state.danger = { ...next };
+      broadcastState();
+    };
+
+    updateDanger();
+    dangerInterval = setInterval(updateDanger, 7000);
+  }
+
+  function stopDangerSimulation() {
+    if (!dangerInterval) {
+      return;
+    }
+
+    clearInterval(dangerInterval);
+    dangerInterval = null;
+    state.danger = { ...DEFAULT_STATE.danger };
+    broadcastState();
+  }
+
+  async function handleToggleApp(active) {
+    if (state.appActive === active) {
+      return state.appActive;
+    }
+
+    state.appActive = active;
+    state.connectionStatus = active ? 'connected' : 'disconnected';
+    if (!active) {
+      state.isProcessing = false;
+    }
+
+    if (active) {
+      startDangerSimulation();
+      showNotification('Automation activated', 'The betting workflow is now active.', 'activated');
+    } else {
+      stopDangerSimulation();
+      showNotification('Automation deactivated', 'The betting workflow has been stopped.');
+    }
+
+    await persistState();
+    broadcastState();
+    return state.appActive;
+  }
+
+  function simulateCoupon() {
+    const now = new Date();
+    const basePrice = (Math.random() * 2.2 + 1.2).toFixed(2);
+    const stake = (Math.random() * 9 + 1).toFixed(2);
+
+    return {
+      id: `BET-${now.getTime().toString().slice(-6)}`,
+      createdAt: now.toISOString(),
+      event: state.prepType === 'danger' ? 'High volatility market' : 'Primary market',
+      market: state.prepType === 'danger' ? 'Lay — Rapid cashout' : 'Back — Value bet',
+      price: Number(basePrice),
+      stake: Number(stake),
+      currency: 'USD',
+      prepared: state.prepareBet,
+      mode: state.prepType,
+      status: 'Sent'
+    };
+  }
+
+  async function handlePlaceBet(origin) {
+    if (!state.appActive) {
+      throw new Error('Activate the app before placing bets.');
+    }
+
+    if (state.isProcessing) {
+      throw new Error('Another bet is currently being processed.');
+    }
+
+    state.isProcessing = true;
+    broadcastState();
+
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    const coupon = simulateCoupon();
+    coupon.origin = origin;
+
+    state.betHistory = [coupon, ...state.betHistory].slice(0, 10);
+    state.isProcessing = false;
+
+    showNotification('Bet placed', `${coupon.id} placed successfully.`, 'success');
+    await persistState();
+    broadcastState();
+    return coupon;
+  }
+
+  async function handlePrepareBet(enabled) {
+    state.prepareBet = Boolean(enabled);
+    if (enabled) {
+      playSound('warmup');
+    }
+    await persistState();
+    broadcastState();
+    return state.prepareBet;
+  }
+
+  async function handleSetPrepType(type) {
+    const nextType = type === 'danger' ? 'danger' : 'instant';
+    state.prepType = nextType;
+    await persistState();
+    broadcastState();
+    return state.prepType;
+  }
+
+  async function handleProxyUpdate(proxy) {
+    state.proxy = {
+      protocol: proxy?.protocol === 'socks' ? 'socks' : 'http',
+      ip: proxy?.ip ? String(proxy.ip).trim() : '',
+      port: proxy?.port ? String(proxy.port).trim() : '',
+      user: proxy?.user ? String(proxy.user).trim() : '',
+      password: proxy?.password ? String(proxy.password).trim() : ''
+    };
+    await persistState();
+    broadcastState();
+    return state.proxy;
+  }
+
+  async function openSeparateWindow() {
+    chrome.windows.create({
+      url: chrome.runtime.getURL('html/popup.html'),
+      type: 'popup',
+      width: 460,
+      height: 640
+    });
+  }
+
+  chrome.runtime.onConnect.addListener(port => {
+    if (port.name !== 'popup') {
+      return;
+    }
+
+    ports.add(port);
+    port.onDisconnect.addListener(() => {
+      ports.delete(port);
+    });
+
+    port.postMessage({ type: 'stateUpdate', state: getStateForUi() });
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || !message.type) {
+      return;
+    }
+
+    (async () => {
+      switch (message.type) {
+        case 'getState':
+          return getStateForUi();
+        case 'toggleApp':
+          return handleToggleApp(Boolean(message.payload?.active));
+        case 'placeBet':
+          return handlePlaceBet(message.payload?.origin || 'popup');
+        case 'setPrepareBet':
+          return handlePrepareBet(Boolean(message.payload?.enabled));
+        case 'setPrepType':
+          return handleSetPrepType(message.payload?.type || DEFAULT_STATE.prepType);
+        case 'updateProxy':
+          return handleProxyUpdate(message.payload || {});
+        case 'openSeparateWindow':
+          await openSeparateWindow();
+          return true;
+        default:
+          throw new Error(`Unknown message type: ${message.type}`);
+      }
+    })()
+      .then(result => {
+        sendResponse({ success: true, data: result });
+      })
+      .catch(error => {
+        console.error(error);
+        showNotification('Error', error.message, 'error');
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  });
+
+  chrome.commands.onCommand.addListener(async command => {
+    try {
+      if (command === 'do_bet') {
+        await handlePlaceBet('shortcut');
+      } else if (command === 'danger_moment') {
+        state.danger = {
+          label: 'Manual danger signal',
+          command: 'Hold positions',
+          safe: false
+        };
+        broadcastState();
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  });
+
+  async function initializeBackground() {
+    try {
+      const stored = await storageGet('betState');
+      if (stored && stored.betState) {
+        state = {
+          ...state,
+          ...stored.betState
         };
       }
-    } else {
-      return {
-        success: false,
-        error: `License verification failed. Response status: ${response.status}`
-      };
+    } catch (error) {
+      console.error('Failed to restore state', error);
     }
-  } catch (error) {
-    console.error(error);
-    return { success: false, error: `Verification error: ${error.message}` };
-  }
-}
 
-// Create a session with the betting server
-async function createSession() {
-  try {
-    const sessionData = {
-      countryCode: 'BR',
-      culture: 'pt-BR',
-      timezoneOffset: new Date().getTimezoneOffset(),
-      integration: 'desktop',
-      deviceType: 1,
-      numFormat: 'x.x',
-      token: settings.token,
-      walletCode: settings.walletCode
+    state.proxy = {
+      ...DEFAULT_STATE.proxy,
+      ...state.proxy
     };
 
-    const headers = {
-      'accept': 'application/json',
-      'content-type': 'application/json'
-    };
+    state.connectionStatus = state.appActive ? 'connected' : 'disconnected';
 
-    const response = await fetch('https://srv.betfair.com/rest/v1/session', {
-      headers: headers,
-      body: JSON.stringify(sessionData),
-      method: 'POST'
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      return {
-        success: true,
-        sessionToken: result.sessionToken,
-        currency: result.currency
-      };
-    } else {
-      console.error(response.status);
-      return {
-        success: false,
-        error: `Session creation failed. Status: ${response.status}`
-      };
+    if (state.appActive) {
+      startDangerSimulation();
     }
-  } catch (error) {
-    console.error(error);
-    return { success: false, error: error.message };
+
+    broadcastState();
   }
-}
 
-// Place a bet
-async function createBet() {
-  try {
-    // Prepare bet data
-    const betData = {
-      betMarkets: coupon,
-      betType: coupon.length === 1 ? 0 : 1,
-      confirmedByClient: false,
-      countryCode: 'BR',
-      culture: 'pt-BR',
-      device: 0,
-      deviceType: 1,
-      eachWays: [false],
-      integration: 'desktop',
-      isAutoCharge: false,
-      numFormat: 'x.x',
-      oddsChangeAction: 2,
-      requestId: makeid(20),
-      stakes: [Number((settings.stake * getRandomFloat(0.1, 0.9, 2)).toFixed(2))],
-      timezoneOffset: new Date().getTimezoneOffset()
-    };
-
-    const headers = {
-      'accept': 'application/json',
-      'authorization': `Bearer ${settings.token}`,
-      'content-type': 'application/json'
-    };
-
-    const response = await fetch('https://srv.betfair.com/rest/v1/budget/placebet', {
-      headers: headers,
-      body: JSON.stringify(betData),
-      method: 'POST'
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      console.log('Bet response:', result);
-
-      if (result.error !== undefined) {
-        // Handle different error types
-        let errorMsg = '';
-        
-        switch (result.error.errorType) {
-          case 1:
-            errorMsg = 'Insufficient funds';
-            break;
-          case 2:
-            errorMsg = 'Odds have changed';
-            break;
-          case 3:
-            errorMsg = 'Market suspended';
-            break;
-          case 4:
-            errorMsg = 'Account limited';
-            break;
-          default:
-            errorMsg = `Betting error: ${result.error.message}`;
-        }
-        
-        bet_errors.push(errorMsg);
-        bet_errors = Array.from(new Set(bet_errors));
-        
-        return { success: false };
-      } else {
-        return { success: true };
-      }
-    } else {
-      await sendNotification(
-        'Betting Error', 
-        `Failed to place bet. Status: ${response.status}`
-      );
-      await globalStop();
-      return { success: false };
-    }
-  } catch (error) {
-    await sendNotification(
-      'Betting Error', 
-      `Error placing bet: ${error.message}`
-    );
-    await globalStop();
-    return { success: false };
-  }
-}
-
-// Generate random ID
-function makeid(length) {
-  let result = '';
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const charactersLength = characters.length;
-  
-  for (let i = 0; i < length; i++) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
-  }
-  
-  return result;
-}
-
-// Compare server coupon with local
-async function compareServerCoupon() {
-  let serverCoupons = [];
-  let localCoupon = await getValue('coupon');
-  
-  localCoupon.forEach(coupon => {
-    let couponData = {
-      game: coupon.gameName,
-      market: `${coupon.odds[0].marketName}: ${coupon.odds[0].selectionName}`,
-      odd: coupon.odds[0].price
-    };
-    serverCoupons.push(couponData);
-  });
-  
-  return serverCoupons;
-}
-
-// Send notification
-async function sendNotification(title, message) {
-  console.log(title, message);
-  
-  if (title === 'Bet Placed') {
-    const betData = {
-      type: 'bet',
-      amount: Number((settings.stake * getRandomFloat(0.1, 0.9, 2)).toFixed(2)),
-      currency: settings.currency,
-      coupons: await compareServerCoupon()
-    };
-    
-    if (api_socket && api_socket.readyState === 1) {
-      api_socket.send(stringToHex(JSON.stringify(betData)));
-    }
-    
-    setTimeout(() => updateData(), 5000);
-  }
-  
-  const notificationData = {
-    action: 'notification',
-    title: title,
-    message: message
-  };
-  
-  if (api_socket && api_socket.readyState === 1) {
-    api_socket.send(stringToHex(JSON.stringify(notificationData)));
-  }
-  
-  const notificationOptions = {
-    type: 'basic',
-    iconUrl: 'images/icon.png',
-    title: title,
-    message: message,
-    priority: 2
-  };
-  
-  chrome.notifications.create('', notificationOptions, () => {
-    // Play sound based on notification type
-    let sound = '';
-    switch (title) {
-      case 'Bet Placed':
-        sound = 'sounds/bet.mp3';
-        break;
-      case 'Error':
-        sound = 'sounds/error.mp3';
-        break;
-      default:
-        sound = 'sounds/notification.mp3';
-    }
-    
-    const audio = new Audio(chrome.runtime.getURL(sound));
-    audio.volume = 0.7;
-    audio.play();
-  });
-}
-
-// Get account balance
-async function getBalance() {
-  try {
-    const response = await fetch(`https://${settings.host}/api/balance`);
-    
-    if (response.ok) {
-      const result = await response.json();
-      return {
-        success: true,
-        balance: result.balance.available.amount
-      };
-    } else {
-      console.error(response.status);
-      return {
-        success: false,
-        error: `Balance check failed. Status: ${response.status}`
-      };
-    }
-  } catch (error) {
-    console.error(error);
-    return { success: false, error: error.message };
-  }
-}
-
-// Get account name/email
-async function getAccountName() {
-  try {
-    const response = await fetch(`https://${settings.host}/api/profile/getData`);
-    
-    if (response.ok) {
-      const result = await response.json();
-      return {
-        success: true,
-        email: result.email
-      };
-    } else {
-      console.error(response.status);
-      return {
-        success: false,
-        error: `Account info failed. Status: ${response.status}`
-      };
-    }
-  } catch (error) {
-    console.error(error);
-    return { success: false, error: error.message };
-  }
-}
-
-// Activate game
-async function getGameActivate(gameId) {
-  try {
-    const requestData = {
-      action: 'activate',
-      command: 'start',
-      game: gameId
-    };
-    
-    const headers = {
-      'accept': 'application/json',
-      'content-type': 'application/json'
-    };
-    
-    const response = await fetch('https://service.turbogames.online/api/game/activate', {
-      body: JSON.stringify(requestData),
-      headers: headers,
-      method: 'POST'
-    });
-    
-    if (response.ok) {
-      return { success: true };
-    } else {
-      return {
-        success: false,
-        error: `Game activation failed. Status: ${response.status}`
-      };
-    }
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
-// Utility function to convert string to hex
-function stringToHex(str) {
-  let hex = '';
-  for (let i = 0; i < str.length; i++) {
-    hex += str.charCodeAt(i).toString(16);
-  }
-  return hex;
-}
-
-// Utility function to get random float value
-function getRandomFloat(min, max, decimals) {
-  const str = (Math.random() * (max - min) + min).toFixed(decimals);
-  return parseFloat(str);
-}
+  initializeBackground();
+})();
