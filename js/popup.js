@@ -34,6 +34,12 @@
     }
   }
 
+  function markBodyLoaded() {
+    if (elements.body && !elements.body.classList.contains('loaded')) {
+      elements.body.classList.add('loaded');
+    }
+  }
+
   function connectPort() {
     port = chrome.runtime.connect({ name: 'popup' });
     port.onMessage.addListener(message => {
@@ -238,9 +244,7 @@
 
     renderBetHistory(state.betHistory);
 
-    if (elements.body && !elements.body.classList.contains('loaded')) {
-      elements.body.classList.add('loaded');
-    }
+    markBodyLoaded();
   }
 
   function handleProxyChange() {
@@ -388,6 +392,9 @@
       .catch(error => {
         console.error(error);
         showFeedback(error.message, 'error');
+      })
+      .finally(() => {
+        markBodyLoaded();
       });
   }
 
@@ -396,5 +403,6 @@
     connectPort();
     bindEvents();
     requestInitialState();
+    markBodyLoaded();
   });
 })();
